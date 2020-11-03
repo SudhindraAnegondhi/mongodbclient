@@ -59,7 +59,12 @@ Future<void> main(List<String> args) async {
     print(parser.usage);
     exit(0);
   }
-  Map<String, dynamic> creds;
+  if (results['user'] == null) {
+    print('Username:password required.');
+    print(parser.usage);
+    exit(1);
+  }
+  ClientResponse creds;
   if (results['user'] != null) {
     final userpass = results['user'].split(':');
     if (userpass.length != 2) {
@@ -71,8 +76,8 @@ Future<void> main(List<String> args) async {
       exit(0);
     }
     creds = await authenticate(db, userpass[0], userpass[1]);
-    if (creds['error'] != null) {
-      print(creds['error']);
+    if (creds.status != 200) {
+      print(creds.body.toString());
       exit(1);
     }
   }
@@ -98,103 +103,103 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
   final List names = json.decode(results['values'] ?? '[]');
+  final ClientResponse clientResponse = await db.allowModel(results['table']);
+  print(clientResponse.body);
+
   final response = await query(
     db,
     opCode,
     results['table'],
     results['id'],
     results['data'],
-    creds['access_token'],
+    creds.body['access-token'],
   );
-  if (names.isEmpty) {
-    print(response.toString() ?? 'No result');
-  } else {
-    response.forEach((element) {
-      // ignore: omit_local_variable_types
-      Map<String, dynamic> printable = {};
-      names.forEach((name) {
-        if (element.containsKey(name)) {
-          printable[name] = element[name];
-        } else {
-          print('$name is not a valid column name');
-          names.removeWhere((n) => n == name);
-        }
+  if (response != null) {
+    print('-------------------------------------------------');
+    if (names.isEmpty) {
+      print(response.toString() ?? 'No result');
+    } else {
+      response.forEach((element) {
+        // ignore: omit_local_variable_types
+        Map<String, dynamic> printable = {};
+        names.forEach((name) {
+          if (element.containsKey(name)) {
+            printable[name] = element[name];
+          } else {
+            print('$name is not a valid column name');
+            names.removeWhere((n) => n == name);
+          }
+        });
+        print(printable.toString().replaceAll('{', '').replaceAll('}', ''));
       });
-      print(printable.toString().replaceAll('{', '').replaceAll('}', ''));
-    });
+    }
   }
 }
+
+// TODO: check for and handle opCodes
 
 Future<List<dynamic>> query(
   MongoDbClient db,
   String opCode,
-  String table,
+  String collectionName,
   String id,
   String data,
   String accessToken,
 ) async {
-  Map<String, dynamic> response;
-  
   try {
     switch (opCode) {
       case 'a':
-        ClientResponse response = await db.createDocument(
-          table,
+        ClientResponse response = await db.createDocuments(
+          collectionName,
           json.decode(data),
         );
-
         if (response.statusCode == 200) {
           return [response.body];
         }
         break;
-      /*
       case 's':
-        response = await http.get(
-          '$url/$table?filter=$data',
-          headers: headers,
+        ClientResponse response = await db.find(
+          collectionName,
+          filters: json.decode(data),
         );
         if (response.statusCode == 200) {
           return json.decode(response.body);
         }
         break;
       case 'u':
-        response = await http.put(
-          '$url/$table/$id',
-          headers: headers,
-          body: json.encode(data),
+        ClientResponse response = await db.update(
+          collectionName,
+          json.decode(data),
         );
         if (response.statusCode == 200) {
           return [json.decode(response.body)];
         }
         break;
       case 'l':
-        response = await http.get(
-          '$url/$table',
-          headers: headers,
-        );
+        ClientResponse response = await db.find(collectionName);
         if (response.statusCode == 200) {
           return json.decode(response.body);
         }
         break;
       case 'f':
-        response = await http.get(
-          '$url/$table/$id',
-          headers: headers,
+        ClientResponse response = await db.findById(
+          collectionName,
+          id,
         );
         if (response.statusCode == 200) {
           return [json.decode(response.body)];
         }
         break;
-        */
     }
   } catch (e) {
-    print('$opCode on $table with $data failed\nReason: ${e.toString()}');
+    print(
+        '$opCode on $collectionName: ${data ?? ''} failed\nError: ${e ?? ''}');
   }
-  print('$opCode on $table with $data failed\nReason: ${response.toString()}');
+  print('[$opCode]  $collectionName ${data ?? ''} failed.');
   return null;
 }
 
-Future<Map<String, dynamic>> authenticate(
+Future<ClientResponse> authenticate(
   MongoDbClient db,
   String username,
   String password,
@@ -202,10 +207,10 @@ Future<Map<String, dynamic>> authenticate(
   try {
     final creds = await db.authenticate(
         username, password, AuthAction.signInWithPassword);
-    print(creds.toString());
+   // print(creds.toString());
     return creds;
   } on HttpException catch (e) {
-    return {'error': e.message};
+    return ClientResponse(HttpStatus.internalServerError, e);
   }
 }
 

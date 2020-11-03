@@ -5,15 +5,19 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "mongoclient",
+      "name": "Dart",
+      "type": "dart",
       "request": "launch",
-      "type": "dart"
+      "program": "example/mongoclent_example.dart",
+      "args": [
+        "-u",
+        "ads:123456#aA",
+        "-m",
+        "add",
+        "-d",
+        "{ \"id\": \"0\", \"lastName\": \"Furton\", \"email\": \"burton.dui.Cum@euismodurna.com\", \"billingAddress\": { \"country\": \"United States\", \"streetAddress1\": \"5013 Non, Street\", \"zipCode\": \"26602\", \"city\": \"Iowa City\", \"stateCode\": \"IA\" }, \"mobilePhone\": \"1-977-640-9733\", \"firstName\": \"Jack\"}"
+      ]
     },
-    {
-      "name": "example",
-      "cwd": "example",
-      "request": "launch",
-      "type": "dart"
-    }
+    
   ]
 }

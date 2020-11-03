@@ -4,18 +4,18 @@ import 'dart:convert';
 class AppConfig {
   final String serverAddress;
   final String authSecret;
-  final bool useSSL;
+  final bool useTSL;
   AppConfig({
     this.serverAddress = 'localhost:8888',
     this.authSecret,
-    this.useSSL = false,
+    this.useTSL = false,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'serverAddress': serverAddress,
       'authSecret': authSecret,
-      'useSSL': useSSL,
+      'useTSL': useTSL,
     };
   }
 
@@ -25,7 +25,7 @@ class AppConfig {
     return AppConfig(
       serverAddress: map['serverAddress'],
       authSecret: map['authSecret'],
-      useSSL: map['useSSL'] ?? false,
+      useTSL: map['useTSL'] ?? false,
     );
   }
 
