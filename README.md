@@ -1,259 +1,398 @@
+<!-- omit in toc -->
 # MongoDb Dart Client Library
 
-A library to connect to **MongoDb Server**. The libaray  provides a single class `MongoClient`. The client library is written in pure Dart and may be used with bothh Dart and Flutter.
+<img src="readme/dart-logo-png-transparent.png" width="15"> **Dart** <img src="readme/flutter-logo.svg" width="15"> **Flutter** <img src="readme/macos-apple-logi.png" width="18"> **macOS** <img src="readme/linux-logo.jpg" width="15"> **Linux** <img src="readme/iphone-logo.png" width="15"> **iOS** <img src="readme/android.jpg" width="18"> **android** <img src="readme/web.jpg" width="18"> **Web**
 
-## Usage
+A Client library to connect to **MongoDb Server**. The libaray  provides a single class **`MongoDbClient`**. The client library is written in pure Dart and may be used with Dart and Flutter on any platform (Not tested on Windows).
 
-A simple usage example:
+- [Library Functions](#library-functions)
+  - [allowModel(String model) -> Future\<ClientResponse>](#allowmodelstring-model---futureclientresponse)
+  - [authenticate(String username, String password, AuthAction action)](#authenticatestring-username-string-password-authaction-action)
+  - [count(String collection, {Map<String, dynamic> filters}) -> Future\<int>](#countstring-collection-mapstring-dynamic-filters---futureint)
+  - [createDocuments(String collection, dynamic documents)](#createdocumentsstring-collection-dynamic-documents)
+  - [Insert a single document](#insert-a-single-document)
+    - [Primary keys](#primary-keys)
+  - [Inserting multiple documents](#inserting-multiple-documents)
+  - [createIndex(String collection, {String name, Map<String, dynamic> keys, bool unique, Map<String, dynamic> partialFilterExpression})](#createindexstring-collection-string-name-mapstring-dynamic-keys-bool-unique-mapstring-dynamic-partialfilterexpression)
+    - [Index name](#index-name)
+    - [Index keys](#index-keys)
+    - [Unique](#unique)
+    - [Partial Indexes](#partial-indexes)
+  - [drop(String model)](#dropstring-model)
+  - [exists(String model)](#existsstring-model)
+  - [find(String collection, Map<String, dynamic> filters, {int limit, int skip})](#findstring-collection-mapstring-dynamic-filters-int-limit-int-skip)
+    - [Simple filter](#simple-filter)
+    - [Filter Opcodes & Multiple conditions](#filter-opcodes--multiple-conditions)
+    - [List of Opcodes](#list-of-opcodes)
+  - [findById(String collection, dynamic id)](#findbyidstring-collection-dynamic-id)
+  - [findOne(String collection, String key, dynamic value)](#findonestring-collection-string-key-dynamic-value)
+  - [remove(String collection, Map<String, dynamic> filters)](#removestring-collection-mapstring-dynamic-filters)
+  - [save(String collection, Map<String, document> document)](#savestring-collection-mapstring-document-document)
+  - [update(String collection, Map<String, dynamic> document, {bool upsert, bool multiUpdate})](#updatestring-collection-mapstring-dynamic-document-bool-upsert-bool-multiupdate)
+- [Issues](#issues)
+- [License](#license)
+
+## Library Functions
+
+**All Functions return `Future<ClientResponse>`.**
+
+`ClientResponse.status` is same as `HttpStatus` (200 is Ok, etc). `ClientResponse.body` contains data returned from the server.
+
+```dart
+class ClientResponse {
+  final int _status;
+  final dynamic _body;
+
+  ClientResponse(int status, dynamic body)
+    :_status = status, _body = json.encode(body ?? {});
+
+  int get statusCode => _status;
+  dynamic get body => json.decode(_body);
+}
+```
+
+### allowModel(String model) -> Future\<ClientResponse>
+
+Normally,  server will only accept requests that affect models registered with
+the server. Models can be registered using **mongoadmin**. This requires
+stopping the server, running mongoadmin, adding model and restarting the server.
+
+If the model usage is of a temporary nature, this function can be used to inform
+the server to accept the model temporarily. **Please note:** Models allowed using
+*allowModel* function are volatile and do not survive a server restart.
+
+Returns status 200 if the model was allowed. User requires no spcial privileges
+for this function.
+
+### authenticate(String username, String password, AuthAction action)
+
+This function can be used to register or *signup* ordinary users, using
+ `AuthAction.signUpWithPassword` action *signIn* with `AuthAction.signUpWithPassword`.
+
+```dart
+enum AuthAction {
+  signInWithPassword,
+  signUpWithPassword,
+}
+```
+
+***Please Note***
+
+- A new Username *must* be an email address.
+  
+- Password must at least be 8 characters long and must contain at least one of
+ each of the following:
+  
+  - Uppercase letter
+  - Lowercase letter
+  - Digit
+  - Special Character - One of # ! @ $ %
+
+Returns status 200 if the operation succeeded.
+
+On succesful log on,  `Response.body` contains the following map:
+
+```dart
+{
+  'status': 'ok',
+  'expiry': DateTime.now().add(Duration(hours: 24)).toIso8601String(),
+  'user': {
+      'username': username,
+      'hashedPassword': hashedPassword,
+      'salt': salt,
+      'isAdmin': isAdmin,
+    },
+  'access-token': authorizationToken,
+}
+```
+
+### count(String collection, {Map<String, dynamic> filters}) -> Future\<int>
+
+***Important***:  *Returns int and not `ClientResponse`*.
+
+Returns the number of documents matching the filters. If no filters
+are specified, the number of documents contained in the collection
+is returned. **Please note:** *This isthe only function that does not
+return a `ClientResponse`, at this time.
+
+```dart
+import 'packages:mongoclient/mongoclient.dart'
+
+...
+final db = MongoDbClient();
+
+final int count = await db.count('products');
+
+```
+
+### createDocuments(String collection, dynamic documents)
+
+Inserts one or more documents in the collection.
+
+Validation of the document regarding the names and types of the fields
+is done differently for a registered model and a temporarily allowed
+model.
+
+All inserts/updates to registered models are validated for field names
+and types. A new document must contain the same number, names and types
+of the schema fields. A document being updated may only contain fields
+in the schema.
+
+No schema validation takes place for inserts to a temporarily allowed
+model beyond checking where possible that the schema of previously
+inserted documents match the new document.
+
+**To be implemented**: Validation business rules.
+
+### Insert a single document
+
+```dart
+import 'packages:mongoclient/mongoclient.dart'
+
+...
+final db = MongoDbClient();
+
+// Single document insert
+final Map<String, dynamic> document = {
+  "productName": "Widget",
+  "productNumber": "WD045-45565-787",
+  "ItemQuantity": 345,
+  "reOrderQuantity": 500,
+};
+
+final ClientResponse response = await db.createDocuments('products', document);
+```
+
+#### Primary keys
+
+MongoClient returns the newly created document along with the **\_id** field containing
+the document id generated by mongoDb upon insertion. The id is a 24 character hexadecimal
+string. If the document  property contains an **\_id** field, *mongoDB will attempt to update
+the document and not create it.*
+
+### Inserting multiple documents
+
+```dart
+import 'packages:mongoclient/mongoclient.dart'
+
+...
+final db = MongoDbClient();
+
+// documents is a List<Map<String, dynamic>> object
+
+final ClientResponse response = await db.createDocuments('transactions', documents);
+print('Wrote ${response.body['count'].toString} transactions);
+```
+
+Inserting mutliple documents returns the number inserted.
+
+### createIndex(String collection, {String name, Map<String, dynamic> keys, bool unique, Map<String, dynamic> partialFilterExpression})
+
+MongoDB creates a unique index on the \_id field during the creation of a collection. The \_id index prevents clients from inserting two documents with the same value for the \_id field. You cannot drop this index on the \_id field.
+
+#### Index name
+
+The default name for an index is the concatenation of the indexed keys and each key’s direction in the index ( i.e. 1 or -1) using underscores as a separator. For example, an index created on `{ item : 1, quantity: -1 }` has the name **item_1_quantity_-1**.
+
+By specififying *name*, a custom human readable index name can be created. This must be unique.
+
+#### Index keys
+
+Index can be either simple or compound. The *keys* property for defining simple index, for example: `{'email': -1}` sorts documents in descending order on `email`. The *keys* property for  a compound index, for example: `{'date': -1, 'customerName': 1}` causes documents to be first sorted on `date` in descending order and within the date by `customerName` in ascending order.
+
+#### Unique
+
+The *unique* property for an index causes MongoDB to reject duplicate values for the indexed field. Other than the unique constraint, unique indexes are functionally interchangeable with other MongoDB indexes.
+
+#### Partial Indexes
+
+Partial indexes only index the documents in a collection that meet a specified filter expression set by the *partialFilterExpression*. By indexing a subset of the documents in a collection, partial indexes have lower storage requirements and reduced performance costs for index creation and maintenance.
 
 ```dart
 import 'package:mongoclient/mongoclient.dart';
 
-main() {
-  final MongoDbClient db = MongoDbClient(configuration: {
-    "serverAddress": "localhost:8888",
-    "authSecret": "mySecret",
-    "useTSL": false,
-  });
+...
+
+final db = MongoDbClient();
+
+final response = db.createIndex(
+  'products',
+  keys: {'productName': 1},
+  unique: true);
+```
+
+### drop(String model)
+
+The drop function removes an entire collection from a database.
+
+```dart
+import 'package:mongoclient/mongoclient.dart';
+
+...
+
+final db = MongoDbClient();
+
+final response = db.drop('test');
+```
+
+### exists(String model)
+
+Returns `{'exists': true}` if the collection exists in the database.
+
+```dart
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+
+final response = db.exists('test');
+
+if(response.status == 200 && response.body['exists']) {
+  print('$model exists);
 }
 ```
 
-### Configuration
+### find(String collection, Map<String, dynamic> filters, {int limit, int skip})
 
-The `serverAddress` is the address  and port where  `mongoserver` is running. `authSecret` is the shared secret between the server and client and can be any 24 character string. If the server uses TSL (Transport Security Layer), set `useTSL` to `true`.
+Executes a server query on the collection, returns documents based on the query
+parameters specified through filter.
 
-The configuration argument is optional. If no configuration is provided, MongoClient uses localhost as the address, 8888 as the port, a program specified authSecret and useTSL is set to false.
-
-## Client API calls
-
-### Response from the Client
-
-All calls to the Client return a ClientResponse object, containing the response status code and data or message returned from the client.
+#### Simple filter
 
 ```dart
-class ClientResponse {
-  final int status;
-  final dynamic body;
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+final response = db.find('customer', filters={'name': 'XYZ Co'} );
+if(response.status == 200){
+  final customer = Customer.fromMap(response.body[0]);
+  print('${customer.name}\t${customer.email}`);
 }
-
 ```
 
-The status returned is ```HttpStatus```
-The body can contain either a String message or a document object - either List<Map<String, dynamic>> or a Map<String, dynamic> for calls that return a single document.
+#### Filter Opcodes & Multiple conditions
 
-### Adding Users and authenticating users
+The simple filter used above is intrepreted as `customer.where(name == 'XYZ.Co')`, because
+as there is no opcode specified `mongoDbClient` assumes opcode **equals**.
 
-The server allows access only to authenticated users. Users may be added through  the authenticate API call by
-calling API with AuthAction.signUpWithPassword flag. Existing users are authenticated by the authenticate call with AuthAction,signInWithPassword option.
+Opcodes are separated from field name with a **:**. If we wanted say all customers with
+balanceDue > 50,000, the filter would be `{'balanceDue.gt': 50000}.
 
-```Map<String, dynamic> response```: ```"status"```: HttpStatus.ok, ```"user"```: Map<String, dynamic> user if the call was successful else a **HttpException** is thrown
-with the cause as a String in the body.
+#### List of Opcodes
 
-```dart
-// Sign up new user
-final Map<String, dynamic> response = await db.authenticate(
-  username,
-   password,
-   AuthAction.signUpWithPassword,
-);
+- **all**: Documents containing any of the values in the list. For example: `{'ranks:all': ['Captain', 'Major','Lieut.Colonel']}`
+- **and**: Logical `AND`. Default combining operation. All preceding filters are treated as a group and all subsequent filters as the second and GRP1 AND GRP2 is generated. `{'and': true}`.
+- **comment:** Inserts a comment at that point in the query build object.
+- **eq**: `Equals`.Default Opcode. Omission of opcode from a filter expression implies `Equals`.
+- **excludeFields**: Excludes the fields in the list from the projection. For example: `{'excludeFields', ['creationDate', 'updateDate']}`.
+- **exists**: Tests the existence of a field without testing it's value. The query succeeds if the field exists. Useful for dynamic schema contents. Eg., `{'exists': 'somefield`}.
+- **fields**: If present only fields in the list specified will be returned in the projection.
+- **gt**:  `GreaterThan` or `>`.
+- **gte**:  `GreaterThanOrEquals` or `>=`.
+- **hintIndex**: Suggest using a specific index for this query. `{'product_-1': true}`.
+- **id**: The `ObjectId` of the document. `{'id': _id.toHexString())`.
+- **inRange**: True if field value falls in the range. `{'price:inRange': {'min': 200, 'max': 300, 'mininclude': false, 'maxinclude': false}}`.
+- **jsQuery**: jQuery Javascript expression. `{'jsQuery': 'jsExpression'}`.
+- **limit**:  Limit the number of documents returned by the query. `{'limit`: 30}`.
+- **lt**: `LessThan`. `{'age:lt': 56}`.
+- **lte**: `LessThanOrEquals`. `{'age:lte': 56}`.
+- **match**: Regular Expression match. `{'address': {'match': r'^\s+(\w+)-45\,.*\$', 'multiline': false, 'caseInsensitive': false, 'dotAll': false, 'extended': false}}`.  
+<!--- mod: expect fieldname, int -> sb -->
+- **ne**: `NotEquals` or `!=`. `{'post:ne': 'supervisor'}`.
+- **near**: Fuzzy equals or *near* the value and within the optional distance specified. `{'age:near': {'value': 20, 'distance': 1.0}`.
+- **nin**: `NotIn`. Document value *not in* the list specified. `{'age.nin': [17,19, 32]}`.
+- **notExists**:  Tests the non existence of a field without testing it's value. The query succeeds if the field does not exist. Useful for dynamic schema contents. Eg., `{'notExists': 'timeInGrade`}.
+- **oneFrom**: Document value *one from* the list specified. `{'age.oneFrom': [17,19, 32]}`.
+- **or**: Logical `OR`. All preceding filters are treated as a group and all subsequent filters as the second and GRP1 OR GRP2 is generated. `{'or': true}`.
+- **skip**: Skip `skip` number of documents in the generated query. `{'skip': 100`
+- **sortBy**: Sort key to sort the documents. Sorting occurs in the order listed. `{'date': -1}`.
 
-// Sign in existing user
-final Map<String, dynamic> response = await db.authenticate(
-  username,
-   password,
-   AuthAction.signUInWithPassword,
-);
+### findById(String collection, dynamic id)
 
-```
+Retrieves the document by id. When mongodb inserts a record it assigns an unique `ObjectId` to the document.
 
-### **Alow temporary access to a Model**
-
-The server allows access only to models that are either included in the server's model directory
-or registered by adding the model name to the list in server's ```config.yaml``` file.
-
-The client, however, may request *temporary* registration of a model. This registration request is accepted
-*only from an admin user*. This registration is not permanent and is lost if the server is restarted. Once
-the model is registered, normal users without admin privileges are granted access normally.
-
-Responses may be: **HttpStatus.ok** - Registration granted, HttpStatus.ok - Model is already registered or
-**HttpStatus.unauthorized** - If the logged in user is not an admin.
-
-```dart
-
-final ClientResponse response = db.allowModel('foo);
-
-```
-
-### **Find a document by a unique field**
-
-Models part of the server allow retrieving documents by their primary keys. Please note that  **mongoDb**'s
-requirement that document ID must be length limited, the server does not allow document IDs to be primary keys.
-If the model is integrated with the server (as opposed to merely being registered), the user may
-specify any field as primary key. The search key can be any field of course. Primary keys are used to ensure
-the uniqueness of a document within the collection and are of course retrieved faster.
-
-Response: If successful, Status: HttpStatus.Ok, body: Map<String, dynamic> document.
-On failure, status: HttpStatus corresponding to error for failure, body: String error desciption.
+`id` property can either be an `ObjectId` object or an  HexString (max 24 characters), which
+can be converted to an `objectId`.
 
 ```dart
-String collectionName = "widgets";
-String key= "productId";
-int productId = 4537865690; // can be any scalar unique value
-final ClientResponse response =await db.findOne(collectionName,
-key,
-productId
-);
-```
-
-#### **Find a document by its Id**
-
-**MongoDb** inserts a field '_id' with an unuque *ObjectId* when the document is inserted. The document can
-be retrieved using it's *_id* field.
-
-Response: If successful, Status: HttpStatus.Ok, body: Map<String, dynamic> document.
-On failure, status: HttpStatus corresponding to error for failure, body: String error desciption.
-
-```dart
-final ClientResponse response =await db.findOne(collectionName,
-  document['_id'],
-);
-```
-
-#### **Get multiple documents**
-
-Getting all documents is simple.
-
-```dart
-final ClientResponse response =await db.find(collectionName);
-```
-
-This will retrieve *all* documents in the collection. The retrieval does not guarantee any order.
-
-Filters can be used to
-
-- Get all document meeting one or more criteria.
-- Limit the number of documents retrieved
-
-Response if successful, one or more documents that met the search parameters.
-
-```dart
-final ClientResponse response =await db.find(collectionName,
-filters: filters);
-
-```
-
-##### **Filters**
-
-Filters are used to: a) Search for documents meeting specific conditions, b) Sort the documents.
-
-For example retrieve all products with at least 10 orders or discount of less than 30% and out of stock,
-and  sorted by leadTime joined with suppliers for the product with rating greater than 5:
-
-```dart
-Map<String, dynamic> filters = {
-  "orders.gte": 10,
-  "or": null,
-  "discount.lt": 0.30,
-  "stockQuantity": 0,
-  "join" {
-    "collectionName": "suppliers",
-    "where":[
-      // parent collection to child collection comparisions
-      { "parentField": "supplierId.eq", "childField": "_id" },
-      // child collection fields
-      { "rating.gt": 5 },
-    ]
-  },
-  "sortBy": "leadTime.desc"
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+ ...
+// String id contains HexString
+final response = db.findById('customer', ObjectId.fromHexString(id) );
+if(response.status == 200){
+  final customer = Customer.fromMap(response.body[0]);
+  print('${customer.name}\t${customer.email}`);
 }
-
 ```
 
-## Database Structure and Maintenance
+### findOne(String collection, String key, dynamic value)
 
-For trivial applications, registering the name of a model - or as termed by MongoDb, a collection, is
-sufficient for the application to create, read, update and delete documents. As the server lacks any
-knowledge of the model's structure, it performs no validations regarding the operations. Thus the
-application may change the structure, type of fields etc in each insert/update operation. Of course,
-this freedom can lead to bugs in the application data by a badly written application. Further, as the
-server has no knowledge of the model's primary key, duplicate records can freely be added. Queries
-can fail due to badly spelt field names, types or collection names. All database maintenance operations
-require admin privileges. This is done using ```monoadmin``` command.
+Returns a single document whose *key* is equal to *value* supplied.
 
-### Adding Collection to the server
-
-A new Collection can be added to the server by the user. The server adds the collection to it's permanent code
-and restarts to integrate the collection (Model). This is done in two steps.
-
-#### Step 1: Validate and Edit new collection class
-
-Create a json data model of the new collection, with typical data entered against each field. Primary key, foreign key index and noUpdate entries are optional. The
-no update list controls which fields may be updated through an update.
-
-Example:
-
-```sh
-$ cat newmodel.json
-{
-  "collectionName": "SpecialWidgets",
-  "primary key": "widgetname",
-  "foreign keys": [
-    {"product_id": "products"},
-    {"supplier_id": "supplier"};
-  ],
-  "index": ["product_id", "supplier_id"],
-  "noUpdate": ["widgetname", "product_id". "supplier_id"],
-  "dateFields"["lastUsed"],
-  "fields": {
-    "widgetName": "xxx xx",
-    "product_id": "addfdf12",
-    "supplier_id": "adnfdfd",
-    "description": "xxxx",
-    "assemblyCode": "adfdfdfd",
-    "quuantityInStock": 24,
-    "quantityOnOrder": 200,
-    "price": 2987.56,
-    "lastUsed": "2020-11-21T12:45.012.782Z",
-    "models": ["xxx", "dfdfd", "cccc"],
-    "hasSubstitutes": false,
-    "bomLink": "https://bom.acme.dfut/xxx%20xx"
-  }
+```dart
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+ ...
+// String id contains HexString
+final response = db.findOne('customer', 'name', 'XYZ Co.Ltd' );
+if(response.status == 200){
+  final customer = Customer.fromMap(response.body[0]);
+  print('${customer.name}\t${customer.email}`);
 }
-$ mongoadmin validate newmodel.json
-Mongo Admin version 0.0.1
-
-JSON has errors
-
-Error: Parse error on line 9:
-..._id": "supplier"  }; ], "index": ["pr
-----------------------^
-Expecting 'EOF', '}', ',', ']', got 'undefined'
-
-Please fix the error(s) and revalidate
 ```
 
-As the validator emits error at the first error encountered, you will have to iteratively correct the JSON file until the validator reports ```Valid JSON```.
+### remove(String collection, Map<String, dynamic> filters)
 
-#### Step - 2: Add Model to server
+Removes all documents meeting the filters parameter. Empty filters parameter has no effect.
 
-```sh
-$ mongoadmin  addmodel newmodel.json
-Mango Admin version 0.0.1
-Enter username: admino
-Enter password: **********
-Adding model [SpecialWidget] to schemas....done
-Adding route [/specialwidget and /specialwidget/<id>] to service.....done
-restarting mongoserver........done
-$
+Returns a non Ok status if the documents can not be found. If all the documents are found, returns a List<Map<String, dynamic>>{'status': x, 'id': 'id', 'remarks': 'xx'}.
+
+### save(String collection, Map<String, document> document)
+
+Save can modify all or some fields of a document. The `document` must have a valid `_id`
+element.
+
+```dart
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+ ...
+// String id contains HexString
+var response = db.findOne('customer', 'name', 'XYZ Co.Ltd' );
+if(response.status != 200){
+  return;
+final customer = Customer.fromMap(response.body[0]);
+customer.balance += 1000;
+var response = db.save('customer', customer.toMap());
 ```
+
+### update(String collection, Map<String, dynamic> document, {bool upsert, bool multiUpdate})
+
+This function is similar to `update()` function above in that it attempts to update the document. If the document does not exist and  `upsert` is `true`, inserts the document. This must be a complete record.
+
+```dart
+import 'package:mongoclient/mongoclient.dart';
+...
+final db = MongoDbClient();
+ ...
+// String id contains HexString
+var response = db.findOne('customer', 'name', 'XYZ Co.Ltd' );
+if(response.status != 200){
+  return;
+final customer = Customer.fromMap(response.body[0]);
+customer.balance += 1000;
+var response = db.update('customer', customer.toMap(), upsert: false);
+```
+
+______________________________
+
+## Issues
 
 Please file feature requests and bugs at the [issue tracker][tracker].
 
 [tracker]: http://example.com/issues/replaceme
-
-## Credits
-
-JSON to Dart class generation is thanks to [Javier Lecuona](https://github.com/javiercbk/json_to_dart), most of that code is used as is except to add *mongoserver* specific getters.
 
 ## License
 

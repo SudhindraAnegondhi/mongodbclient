@@ -11,6 +11,7 @@ dependencies:
   dart_style: '^1.0.10'
   http: ^0.12.2
   json_ast: '^1.0.5'
+  mock_data: ^1.2.8
   #safe_config: ^2.0.2
 
 #  path: ^1.7.0

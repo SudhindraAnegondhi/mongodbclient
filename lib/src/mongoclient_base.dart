@@ -8,7 +8,6 @@ class MongoDbClient {
   AppConfig config = AppConfig();
   String _url;
   final headers = {'content-type': 'Application/json'};
-
   Map<String, dynamic> auth = {};
   MongoDbClient({Map<String, dynamic> configuration}) {
     configuration?.keys?.forEach((key) {
@@ -21,6 +20,16 @@ class MongoDbClient {
       config = AppConfig.fromMap(configuration);
     }
     _url = (config.useTSL ? 'https' : 'http') + '://' + config.serverAddress;
+  }
+
+  Future<ClientResponse> exists(String collection) async {
+    final url = '$_url/admin/exists/${_camelCaseFirstLower(collection)}';
+    final response = await http.get(url, headers: headers);
+    if (response.statusCode == 200) {
+      final body = json.decode(response.body);
+      return ClientResponse(HttpStatus.ok, body);
+    }
+    return ClientResponse(response.statusCode, response.body);
   }
 
   Future<ClientResponse> createIndex(
@@ -96,21 +105,48 @@ class MongoDbClient {
     return ClientResponse(response.statusCode, response.body);
   }
 
+  String _valueToJSon(dynamic value) {
+    if (value == null) {
+      return '';
+    }
+    if (value == List || value is Map) {
+      return json.encode(value);
+    }
+    return value.toString();
+  }
+
+  /// Executes a query om [model] that returns documents
+  /// after applying the filters in the parameter [filter].
+  /// If omitted, returns all the documents from the model
+  /// subject to [limit] number of documents, after skipping
+  /// [skip] number of documents. As mongoclient operates through
+  /// a stateless REST server a cursor can not be preserved between calls
+  /// This may result in server delays if the collection is large.
   Future<ClientResponse> find(
     String collection, {
     Map<String, dynamic> filters,
+    int limit,
+    int skip,
   }) async {
     String url = '$_url/${_camelCaseFirstLower(collection)}';
     String params = '';
+
     if (filters != null && filters.isNotEmpty) {
       filters.forEach((key, value) {
         if (params.isEmpty) {
-          params = '?$key=' + value?.toString() ?? '';
+          params = '?$key=' + _valueToJSon(value);
         } else {
-          params += '&$key=' + value?.toString() ?? '';
+          params += '&$key=' + _valueToJSon(value);
         }
       });
     }
+    if (limit != null) {
+      params += params.isEmpty ? '?' : '&' + 'limit=${limit.toString()}';
+    }
+    if (skip != null) {
+      params += params.isEmpty ? '?' : '&' + 'limit=${skip.toString()}';
+    }
+
     final response = await http.get(
       '$url$params',
       headers: headers,
@@ -122,8 +158,13 @@ class MongoDbClient {
   Future<ClientResponse> remove(
       String collection, Map<String, dynamic> filters) async {
     // Todo: implimint priviliege and role based delete
+    String model = _camelCaseFirstLower(collection);
+    if (model == 'user' && !auth['isAdmin']) {
+      return ClientResponse(
+          HttpStatus.unauthorized, 'User can only be removed by an admin');
+    }
     String params = '';
-    String url = '$_url/${_camelCaseFirstLower(collection)}';
+    String url = '$_url/$model';
 
     if (filters != null && filters.isNotEmpty) {
       filters.forEach((key, value) {
@@ -134,9 +175,23 @@ class MongoDbClient {
         }
       });
     }
-    final response = await http.delete('$url$params', headers: headers);
-
-    return ClientResponse(response.statusCode, response.body);
+    var response = await http.get('$url/$params', headers: headers);
+    if (response.statusCode == HttpStatus.ok) {
+      final ids = List<String>.from(json.decode(response.body));
+      List<Map<String, dynamic>> deletedIds = [];
+      bool error = false;
+      ids.forEach((id) async {
+        response = await http.delete('$url/$id', headers: headers);
+        deletedIds.add(
+            {'status': response.statusCode, 'id': 'id', 'body': response.body});
+        if (!error) {
+          error = response.statusCode == HttpStatus.ok;
+        }
+      });
+      return ClientResponse(
+          error ? HttpStatus.notModified : HttpStatus.ok, deletedIds);
+    } else
+      return ClientResponse(response.statusCode, response.body);
   }
 
   Future<ClientResponse> save(
@@ -144,8 +199,11 @@ class MongoDbClient {
     Map<String, dynamic> document,
   ) async {
     try {
+      if(document['_id'] == null) {
+        return ClientResponse(HttpStatus.internalServerError, 'Document \'_id\' is required');
+      }
       final body = json.encode(document);
-      final response = await http.put(
+      final response = await http.patch(
         '$_url/${_camelCaseFirstLower(collection)}/${document['_id']}',
         headers: headers,
         body: body,
@@ -261,7 +319,7 @@ class MongoDbClient {
           'status': 'ok',
           'expiry': DateTime.now().add(Duration(hours: 24)).toIso8601String(),
           'user': body['user'],
-          'access-token': 'Bearer ${body['token']}'
+          'access-token': body['token'],
         });
       }).catchError((e) {
         return ClientResponse(HttpStatus.internalServerError, e.toString());
